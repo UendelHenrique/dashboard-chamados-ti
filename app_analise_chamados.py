@@ -6,8 +6,8 @@ import plotly.express as px
 st.set_page_config(page_title="Análise de Chamados de TI", page_icon="📊", layout="wide")
 st.title("📊 Dashboard de Análise de Chamados")
 
-# --- Função para Carregar e Preparar os Dados ---
-@st.cache_data
+# --- Função para Carregar e Preparar os Dados (SEM @st.cache_data) ---
+# A linha "@st.cache_data" foi REMOVIDA para forçar a releitura dos dados sempre.
 def carregar_dados(arquivos_carregados):
     if not arquivos_carregados:
         return pd.DataFrame()
@@ -57,9 +57,7 @@ def carregar_dados(arquivos_carregados):
 with st.sidebar:
     st.header("Upload de Arquivos")
     arquivos_carregados = st.file_uploader("Selecione os arquivos CSV", type=["csv"], accept_multiple_files=True)
-    if st.button('Limpar Cache e Recarregar'):
-        st.cache_data.clear()
-        st.rerun()
+    # O botão de limpar cache não é mais necessário, foi removido.
 
 if not arquivos_carregados:
     st.info("Por favor, carregue um ou mais arquivos CSV para iniciar a análise.")
@@ -87,13 +85,13 @@ except Exception as e:
     st.error(f"Ocorreu um erro ao criar o filtro de data: {str(e)}")
     st.stop()
 
-# --- LÓGICA DE FILTRAGEM CORRIGIDA ---
+# --- Lógica de Filtragem ---
 if not periodo_selecionado or len(periodo_selecionado) != 2:
     st.warning("Aguardando um período de data válido...")
     st.stop()
 else:
     start_date = pd.to_datetime(periodo_selecionado[0])
-    end_date = pd.to_datetime(periodo_selecionado[1]) + pd.Timedelta(days=1) # Garante inclusão do dia inteiro
+    end_date = pd.to_datetime(periodo_selecionado[1]) + pd.Timedelta(days=1)
 
     df_filtrado = df_dados[
         (df_dados['Analista'].isin(analista_selecionado)) &
@@ -105,7 +103,6 @@ else:
 # --- Painel de Status na Barra Lateral ---
 st.sidebar.header("Status da Carga")
 st.sidebar.info(f"Total de Registros Carregados: **{len(df_dados)}**")
-st.sidebar.info(f"Período Detectado: **{data_min.strftime('%d/%m/%Y')}** a **{data_max.strftime('%d/%m/%Y')}**")
 st.sidebar.success(f"Registros Após Filtro: **{len(df_filtrado)}**")
 
 
@@ -118,7 +115,6 @@ st.success(f"Exibindo {len(df_filtrado)} registros com base nos filtros selecion
 tab1, tab2, tab3, tab4 = st.tabs(["📈 T. Médio Categoria", "🧑‍💻 T. Analista/Categoria", "🏆 Desempenho Analista", "🗂️ Visão Categoria"])
 
 with tab1:
-    # O código das abas continua o mesmo
     st.header("Análise do Tempo Médio de Resolução por Categoria")
     tempo_por_categoria = df_filtrado.groupby('Categoria')['Tempo Resolvido (h)'].mean().sort_values(ascending=False).reset_index()
     fig = px.bar(tempo_por_categoria, x='Tempo Resolvido (h)', y='Categoria', orientation='h', title='Tempo Médio (em horas)', text_auto='.2f')
