@@ -3,75 +3,69 @@ import pandas as pd
 import plotly.express as px
 
 # --- Configuração da Página ---
-st.set_page_config(
-    page_title="Análise de Chamados de TI",
-    page_icon="📊",
-    layout="wide"
-)
-
-# --- Título do Dashboard ---
+st.set_page_config(page_title="Análise de Chamados de TI", page_icon="📊", layout="wide")
 st.title("📊 Dashboard de Análise de Chamados")
 
-# --- Função para Carregar e Preparar os Dados ---
+# --- Função para Carregar e Preparar os Dados (LÓGICA REFEITA) ---
 @st.cache_data
-def carregar_dados(arquivos):
-    """
-    Carrega, limpa e concatena múltiplos arquivos CSV de forma robusta.
-    """
-    if not arquivos:
+def carregar_dados(arquivos_carregados):
+    if not arquivos_carregados:
         return pd.DataFrame()
 
-    lista_dfs = []
-    for arquivo in arquivos:
+    lista_dfs_limpos = []
+    for arquivo in arquivos_carregados:
         try:
-            df = pd.read_csv(arquivo, header=2, low_memory=False)
-            lista_dfs.append(df)
+            df_temp = pd.read_csv(arquivo, header=2, low_memory=False)
+
+            # 1. Padronizar coluna de data
+            if 'Data criação' in df_temp.columns:
+                df_temp.rename(columns={'Data criação': 'Data Padronizada'}, inplace=True)
+            elif 'Data/Hora criação' in df_temp.columns:
+                df_temp.rename(columns={'Data/Hora criação': 'Data Padronizada'}, inplace=True)
+            else:
+                st.warning(f"O arquivo '{arquivo.name}' foi ignorado por não conter uma coluna de data esperada.")
+                continue
+
+            # 2. Padronizar outras colunas
+            mapa_renomear = {
+                'Analista Responsável': 'Analista', 'Categoria 1': 'Categoria',
+                'Tempo Resolvido (Horas)': 'Tempo Resolvido (h)', 'PK Dataset Chamados': 'ID Chamado',
+                'Flag Atendeu SLA': 'Status SLA'
+            }
+            df_temp.rename(columns={k: v for k, v in mapa_renomear.items() if k in df_temp.columns}, inplace=True)
+
+            # 3. Verificar se colunas essenciais existem
+            colunas_essenciais = ['Data Padronizada', 'Tempo Resolvido (h)', 'Analista', 'Categoria', 'ID Chamado', 'Status SLA']
+            if not all(col in df_temp.columns for col in colunas_essenciais):
+                st.warning(f"O arquivo '{arquivo.name}' foi ignorado por não conter todas as colunas essenciais.")
+                continue
+            
+            # 4. Converter tipos de dados
+            df_temp['Data Padronizada'] = pd.to_datetime(df_temp['Data Padronizada'], errors='coerce', dayfirst=True)
+            df_temp['Tempo Resolvido (h)'] = pd.to_numeric(df_temp['Tempo Resolvido (h)'], errors='coerce')
+
+            # 5. Remover linhas com dados inválidos
+            df_temp.dropna(subset=['Data Padronizada', 'Tempo Resolvido (h)'], inplace=True)
+            
+            if not df_temp.empty:
+                lista_dfs_limpos.append(df_temp)
+
         except Exception as e:
-            st.warning(f"Não foi possível processar o arquivo {arquivo.name}: {str(e)}")
-    
-    if not lista_dfs:
+            st.warning(f"Ocorreu um erro ao processar o arquivo '{arquivo.name}': {str(e)}")
+
+    if not lista_dfs_limpos:
         return pd.DataFrame()
-
-    df_completo = pd.concat(lista_dfs, ignore_index=True)
     
-    # --- PASSO 1: PADRONIZAR A COLUNA DE DATA ---
-    if 'Data criação' in df_completo.columns:
-        df_completo.rename(columns={'Data criação': 'Data Padronizada'}, inplace=True)
-    elif 'Data/Hora criação' in df_completo.columns:
-        df_completo.rename(columns={'Data/Hora criação': 'Data Padronizada'}, inplace=True)
-    else:
-        st.error("Erro Crítico: Nenhuma coluna de data ('Data criação' ou 'Data/Hora criação') foi encontrada nos arquivos.")
-        return pd.DataFrame()
+    return pd.concat(lista_dfs_limpos, ignore_index=True)
 
-    # --- PASSO 2: PADRONIZAR OUTRAS COLUNAS ---
-    mapa_renomear = {
-        'Analista Responsável': 'Analista',
-        'Categoria 1': 'Categoria',
-        'Tempo Resolvido (Horas)': 'Tempo Resolvido (h)',
-        'PK Dataset Chamados': 'ID Chamado',
-        'Flag Atendeu SLA': 'Status SLA'
-    }
-    df_completo.rename(columns={k: v for k, v in mapa_renomear.items() if k in df_completo.columns}, inplace=True)
 
-    # --- PASSO 3: VERIFICAR COLUNAS ESSENCIAIS ---
-    colunas_essenciais = ['Data Padronizada', 'Tempo Resolvido (h)', 'Analista', 'Categoria', 'ID Chamado', 'Status SLA']
-    for col in colunas_essenciais:
-        if col not in df_completo.columns:
-            st.error(f"Erro Crítico: A coluna essencial '{col}' não foi encontrada nos arquivos após a padronização.")
-            return pd.DataFrame()
-
-    # --- PASSO 4: LIMPEZA E CONVERSÃO DE TIPOS ---
-    df_completo['Data Padronizada'] = pd.to_datetime(df_completo['Data Padronizada'], errors='coerce', dayfirst=True)
-    df_completo['Tempo Resolvido (h)'] = pd.to_numeric(df_completo['Tempo Resolvido (h)'], errors='coerce')
-
-    df_completo.dropna(subset=['Data Padronizada', 'Tempo Resolvido (h)'], inplace=True)
-
-    return df_completo
-
-# --- Barra Lateral (Sidebar) ---
+# --- Barra Lateral e Carregamento de Arquivos ---
 with st.sidebar:
     st.header("Upload de Arquivos")
     arquivos_carregados = st.file_uploader("Selecione os arquivos CSV", type=["csv"], accept_multiple_files=True)
+    if st.button('Limpar Cache e Recarregar'):
+        st.cache_data.clear()
+        st.rerun()
 
 if not arquivos_carregados:
     st.info("Por favor, carregue um ou mais arquivos CSV para iniciar a análise.")
@@ -85,28 +79,22 @@ if df_dados.empty:
 
 # --- Filtros na Barra Lateral ---
 st.sidebar.header("Filtros da Análise")
-
 analistas = sorted(df_dados['Analista'].dropna().unique())
-analista_selecionado = st.sidebar.multiselect('Filtro por Analista', options=analistas, default=analistas)
-
 categorias = sorted(df_dados['Categoria'].dropna().unique())
+
+analista_selecionado = st.sidebar.multiselect('Filtro por Analista', options=analistas, default=analistas)
 categoria_selecionada = st.sidebar.multiselect('Filtro por Categoria', options=categorias, default=categorias)
 
-# --- Filtro por Data (usando a coluna padronizada) ---
 try:
-    min_val = df_dados['Data Padronizada'].min()
-    max_val = df_dados['Data Padronizada'].max()
-    data_min = pd.to_datetime(min_val).date()
-    data_max = pd.to_datetime(max_val).date()
-
+    data_min = df_dados['Data Padronizada'].min().date()
+    data_max = df_dados['Data Padronizada'].max().date()
     periodo_selecionado = st.sidebar.date_input('Filtro por Período', value=(data_min, data_max), min_value=data_min, max_value=data_max, format="DD/MM/YYYY")
-    
-    if not isinstance(periodo_selecionado, tuple) or len(periodo_selecionado) != 2:
-        st.warning("Aguardando um período de data válido...")
-        st.stop()
-
 except Exception as e:
     st.error(f"Ocorreu um erro ao criar o filtro de data: {str(e)}")
+    st.stop()
+
+if not periodo_selecionado or len(periodo_selecionado) != 2:
+    st.warning("Aguardando um período de data válido...")
     st.stop()
 
 # --- Aplicação dos Filtros ---
@@ -127,10 +115,8 @@ tab1, tab2, tab3, tab4 = st.tabs(["📈 T. Médio Categoria", "🧑‍💻 T. An
 
 with tab1:
     st.header("Análise do Tempo Médio de Resolução por Categoria")
-    # ... (o resto do código das abas continua o mesmo, sem necessidade de alteração)
     tempo_por_categoria = df_filtrado.groupby('Categoria')['Tempo Resolvido (h)'].mean().sort_values(ascending=False).reset_index()
-    fig = px.bar(tempo_por_categoria, x='Tempo Resolvido (h)', y='Categoria', orientation='h', title='Tempo Médio (em horas) para Resolução por Categoria', labels={'Tempo Resolvido (h)': 'Tempo Médio (horas)', 'Categoria': 'Categoria do Chamado'}, text_auto='.2f')
-    fig.update_layout(yaxis={'categoryorder':'total ascending'})
+    fig = px.bar(tempo_por_categoria, x='Tempo Resolvido (h)', y='Categoria', orientation='h', title='Tempo Médio (em horas)', text_auto='.2f')
     st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
