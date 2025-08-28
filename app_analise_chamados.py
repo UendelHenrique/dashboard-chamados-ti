@@ -10,13 +10,13 @@ st.set_page_config(
 )
 
 # --- Título do Dashboard ---
-st.title("📊 Dashboard de Análise de Chamados de TI")
+st.title("📊 Dashboard de Análise de Chamados")
 
-# --- Função para Carregar e Preparar os Dados (com cache) ---
+# --- Função para Carregar e Preparar os Dados (com a correção) ---
 @st.cache_data
 def carregar_dados(arquivos):
     """
-    Carrega, limpa e concatena múltiplos arquivos CSV.
+    Carrega, limpa e concatena múltiplos arquivos CSV de forma robusta.
     """
     lista_dfs = []
     for arquivo in arquivos:
@@ -33,21 +33,37 @@ def carregar_dados(arquivos):
     # Concatena todos os DataFrames
     df_completo = pd.concat(lista_dfs, ignore_index=True)
 
-    # --- Limpeza e Transformação dos Dados ---
-    # Remover colunas vazias
+    # --- Limpeza e Transformação dos Dados (VERSÃO CORRIGIDA) ---
+    # Remover colunas completamente vazias
     df_completo.dropna(axis=1, how='all', inplace=True)
     
-    # Converter colunas de data para o formato datetime
+    # Converter a coluna de data, tratando erros de formato
+    # 'errors=coerce' transforma datas mal formatadas em NaT (Not a Time) em vez de travar
     df_completo['Data criação'] = pd.to_datetime(df_completo['Data criação'], errors='coerce')
     
+    # Remove as linhas onde a conversão da data falhou
+    # Isso garante a integridade dos dados para os filtros e análises
+    linhas_originais = len(df_completo)
+    df_completo.dropna(subset=['Data criação'], inplace=True)
+    linhas_removidas = linhas_originais - len(df_completo)
+    if linhas_removidas > 0:
+        st.warning(f"{linhas_removidas} linha(s) foram removidas por conterem um formato de data inválido na coluna 'Data criação'.")
+
     # Renomear colunas para facilitar o uso
-    df_completo.rename(columns={
-        'Tempo Resolvido (Horas)': 'Tempo Resolvido (h)',
-        'Analista Responsável': 'Analista',
-        'Categoria 1': 'Categoria'
-    }, inplace=True)
+    # Usando um 'try-except' para o caso de alguma coluna não existir no arquivo
+    try:
+        df_completo.rename(columns={
+            'Tempo Resolvido (Horas)': 'Tempo Resolvido (h)',
+            'Analista Responsável': 'Analista',
+            'Categoria 1': 'Categoria',
+            'PK Dataset Chamados': 'ID Chamado',
+            'Flag Atendeu SLA': 'Status SLA'
+        }, inplace=True)
+    except KeyError as e:
+        st.error(f"Erro ao renomear colunas. Verifique se a coluna {e} existe no seu arquivo.")
 
     return df_completo
+
 
 # --- Barra Lateral (Sidebar) ---
 with st.sidebar:
@@ -73,17 +89,17 @@ if df_dados.empty:
 st.sidebar.header("Filtros da Análise")
 
 # Filtro por Analista
-analistas = sorted(df_dados['Analista'].unique())
+analistas = sorted(df_dados['Analista'].dropna().unique())
 analista_selecionado = st.sidebar.multiselect(
-    'Selecione o(s) Analista(s)',
+    'Filtro por Analista',
     options=analistas,
     default=analistas
 )
 
 # Filtro por Categoria
-categorias = sorted(df_dados['Categoria'].unique())
+categorias = sorted(df_dados['Categoria'].dropna().unique())
 categoria_selecionada = st.sidebar.multiselect(
-    'Selecione a(s) Categoria(s)',
+    'Filtro por Categoria',
     options=categorias,
     default=categorias
 )
@@ -92,13 +108,19 @@ categoria_selecionada = st.sidebar.multiselect(
 data_min = df_dados['Data criação'].min().date()
 data_max = df_dados['Data criação'].max().date()
 periodo_selecionado = st.sidebar.date_input(
-    'Selecione o Período',
+    'Filtro por Período',
     value=(data_min, data_max),
     min_value=data_min,
-    max_value=data_max
+    max_value=data_max,
+    format="DD/MM/YYYY"
 )
 
 # --- Aplicação dos Filtros ---
+# Verifica se o período selecionado tem duas datas
+if len(periodo_selecionado) != 2:
+    st.warning("Por favor, selecione um período de início e fim válido.")
+    st.stop()
+
 df_filtrado = df_dados[
     (df_dados['Analista'].isin(analista_selecionado)) &
     (df_dados['Categoria'].isin(categoria_selecionada)) &
@@ -115,13 +137,12 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "📈 Tempo Médio por Categoria",
     "🧑‍💻 Tempo por Analista e Categoria",
     "🏆 Desempenho por Analista",
-    "🗂️ Análise Geral por Categoria"
+    "🗂️ Visão Geral por Categoria"
 ])
-
 
 # --- Aba 1: Tempo Gasto por Tipo de Chamado ---
 with tab1:
-    st.header("Tempo Médio de Resolução por Categoria")
+    st.header("Análise do Tempo Médio de Resolução por Categoria")
     
     tempo_por_categoria = df_filtrado.groupby('Categoria')['Tempo Resolvido (h)'].mean().sort_values(ascending=False).reset_index()
     
@@ -139,11 +160,10 @@ with tab1:
 
 # --- Aba 2: Tempo Gasto por Analista em Cada Tipo de Chamado ---
 with tab2:
-    st.header("Tempo de Atuação por Analista e Categoria")
+    st.header("Análise de Tempo por Analista e Categoria")
     
     tempo_analista_categoria = df_filtrado.groupby(['Analista', 'Categoria'])['Tempo Resolvido (h)'].mean().reset_index()
     
-    # Tabela Pivotada para melhor visualização
     tabela_pivot = tempo_analista_categoria.pivot(
         index='Analista', 
         columns='Categoria', 
@@ -154,55 +174,52 @@ with tab2:
 
 # --- Aba 3: Análise de Desempenho por Analista ---
 with tab3:
-    st.header("Análise de Desempenho Geral por Analista")
+    st.header("Análise de Desempenho por Analista")
     
     desempenho_analista = df_filtrado.groupby('Analista').agg(
-        total_chamados=('PK Dataset Chamados', 'count'),
+        total_chamados=('ID Chamado', 'count'),
         tempo_medio_resolucao=('Tempo Resolvido (h)', 'mean')
     ).reset_index()
 
-    # Cálculo do SLA
-    sla_por_analista = df_filtrado.groupby(['Analista', 'Flag Atendeu SLA']).size().unstack(fill_value=0)
+    sla_por_analista = df_filtrado.groupby(['Analista', 'Status SLA']).size().unstack(fill_value=0)
     if 'ATENDEU O SLA' in sla_por_analista.columns:
         sla_por_analista['taxa_sla_%'] = (sla_por_analista['ATENDEU O SLA'] / (sla_por_analista.sum(axis=1))) * 100
     else:
         sla_por_analista['taxa_sla_%'] = 0
 
-    # Juntando os dados
     desempenho_final = pd.merge(desempenho_analista, sla_por_analista[['taxa_sla_%']], on='Analista')
+    desempenho_final.columns = ['Analista', 'Total de Chamados', 'Tempo Médio de Resolução (h)', 'Taxa de SLA (%)']
 
     st.dataframe(
-        desempenho_final.sort_values(by='total_chamados', ascending=False).style.format({
-            'tempo_medio_resolucao': '{:.2f} h',
-            'taxa_sla_%': '{:.1f}%'
+        desempenho_final.sort_values(by='Total de Chamados', ascending=False).style.format({
+            'Tempo Médio de Resolução (h)': '{:.2f} h',
+            'Taxa de SLA (%)': '{:.1f}%'
         }), 
         use_container_width=True
     )
-
 
 # --- Aba 4: Análise por Categoria ---
 with tab4:
     st.header("Análise Geral por Categoria")
     
     analise_categoria = df_filtrado.groupby('Categoria').agg(
-        total_chamados=('PK Dataset Chamados', 'count'),
+        total_chamados=('ID Chamado', 'count'),
         tempo_medio_resolucao=('Tempo Resolvido (h)', 'mean')
     ).reset_index()
     
-    # Cálculo do SLA por Categoria
-    sla_por_categoria = df_filtrado.groupby(['Categoria', 'Flag Atendeu SLA']).size().unstack(fill_value=0)
+    sla_por_categoria = df_filtrado.groupby(['Categoria', 'Status SLA']).size().unstack(fill_value=0)
     if 'ATENDEU O SLA' in sla_por_categoria.columns:
         sla_por_categoria['taxa_sla_%'] = (sla_por_categoria['ATENDEU O SLA'] / (sla_por_categoria.sum(axis=1))) * 100
     else:
          sla_por_categoria['taxa_sla_%'] = 0
     
-    # Juntando os dados
     analise_final = pd.merge(analise_categoria, sla_por_categoria[['taxa_sla_%']], on='Categoria')
+    analise_final.columns = ['Categoria', 'Total de Chamados', 'Tempo Médio de Resolução (h)', 'Taxa de SLA (%)']
     
     st.dataframe(
-        analise_final.sort_values(by='total_chamados', ascending=False).style.format({
-            'tempo_medio_resolucao': '{:.2f} h',
-            'taxa_sla_%': '{:.1f}%'
+        analise_final.sort_values(by='Total de Chamados', ascending=False).style.format({
+            'Tempo Médio de Resolução (h)': '{:.2f} h',
+            'Taxa de SLA (%)': '{:.1f}%'
         }), 
         use_container_width=True
     )
