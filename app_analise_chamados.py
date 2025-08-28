@@ -31,7 +31,9 @@ def carregar_dados(arquivos):
 
     df_completo = pd.concat(lista_dfs, ignore_index=True)
     df_completo.dropna(axis=1, how='all', inplace=True)
-    df_completo['Data criação'] = pd.to_datetime(df_completo['Data criação'], errors='coerce')
+    
+    # CORREÇÃO FINAL: Adicionado 'dayfirst=True' para interpretar corretamente datas no formato brasileiro (DD/MM/YYYY)
+    df_completo['Data criação'] = pd.to_datetime(df_completo['Data criação'], errors='coerce', dayfirst=True)
     
     linhas_originais = len(df_completo)
     df_completo.dropna(subset=['Data criação'], inplace=True)
@@ -80,7 +82,7 @@ analista_selecionado = st.sidebar.multiselect('Filtro por Analista', options=ana
 categorias = sorted(df_dados['Categoria'].dropna().unique())
 categoria_selecionada = st.sidebar.multiselect('Filtro por Categoria', options=categorias, default=categorias)
 
-# --- Filtro por Data (Com a nova correção no 'except') ---
+# --- Filtro por Data ---
 try:
     if df_dados['Data criação'].empty:
         st.warning("Não há dados de data válidos para criar o filtro de período.")
@@ -105,7 +107,6 @@ try:
         st.rerun()
 
 except Exception as e:
-    # CORREÇÃO: Convertendo o objeto de exceção 'e' para string explicitamente
     st.error(f"Ocorreu um erro crítico ao criar o filtro de data: {str(e)}")
     st.error("Isso pode ser causado por um formato de data inesperado. Verifique os dados na coluna 'Data criação'.")
     st.stop()
