@@ -6,7 +6,7 @@ import plotly.express as px
 st.set_page_config(page_title="Análise de Chamados de TI", page_icon="📊", layout="wide")
 st.title("📊 Dashboard de Análise de Chamados")
 
-# --- Função para Carregar e Preparar os Dados (LÓGICA REFEITA) ---
+# --- Função para Carregar e Preparar os Dados ---
 @st.cache_data
 def carregar_dados(arquivos_carregados):
     if not arquivos_carregados:
@@ -33,19 +33,13 @@ def carregar_dados(arquivos_carregados):
                 'Flag Atendeu SLA': 'Status SLA'
             }
             df_temp.rename(columns={k: v for k, v in mapa_renomear.items() if k in df_temp.columns}, inplace=True)
-
-            # 3. Verificar se colunas essenciais existem
-            colunas_essenciais = ['Data Padronizada', 'Tempo Resolvido (h)', 'Analista', 'Categoria', 'ID Chamado', 'Status SLA']
-            if not all(col in df_temp.columns for col in colunas_essenciais):
-                st.warning(f"O arquivo '{arquivo.name}' foi ignorado por não conter todas as colunas essenciais.")
-                continue
             
-            # 4. Converter tipos de dados
+            # 3. Converter tipos de dados
             df_temp['Data Padronizada'] = pd.to_datetime(df_temp['Data Padronizada'], errors='coerce', dayfirst=True)
             df_temp['Tempo Resolvido (h)'] = pd.to_numeric(df_temp['Tempo Resolvido (h)'], errors='coerce')
 
-            # 5. Remover linhas com dados inválidos
-            df_temp.dropna(subset=['Data Padronizada', 'Tempo Resolvido (h)'], inplace=True)
+            # 4. Remover linhas com dados inválidos
+            df_temp.dropna(subset=['Data Padronizada', 'Tempo Resolvido (h)', 'Analista', 'Categoria'], inplace=True)
             
             if not df_temp.empty:
                 lista_dfs_limpos.append(df_temp)
@@ -93,17 +87,27 @@ except Exception as e:
     st.error(f"Ocorreu um erro ao criar o filtro de data: {str(e)}")
     st.stop()
 
+# --- LÓGICA DE FILTRAGEM CORRIGIDA ---
 if not periodo_selecionado or len(periodo_selecionado) != 2:
     st.warning("Aguardando um período de data válido...")
     st.stop()
+else:
+    start_date = pd.to_datetime(periodo_selecionado[0])
+    end_date = pd.to_datetime(periodo_selecionado[1]) + pd.Timedelta(days=1) # Garante inclusão do dia inteiro
 
-# --- Aplicação dos Filtros ---
-df_filtrado = df_dados[
-    (df_dados['Analista'].isin(analista_selecionado)) &
-    (df_dados['Categoria'].isin(categoria_selecionada)) &
-    (df_dados['Data Padronizada'].dt.date >= periodo_selecionado[0]) &
-    (df_dados['Data Padronizada'].dt.date <= periodo_selecionado[1])
-]
+    df_filtrado = df_dados[
+        (df_dados['Analista'].isin(analista_selecionado)) &
+        (df_dados['Categoria'].isin(categoria_selecionada)) &
+        (df_dados['Data Padronizada'] >= start_date) &
+        (df_dados['Data Padronizada'] < end_date)
+    ]
+
+# --- Painel de Status na Barra Lateral ---
+st.sidebar.header("Status da Carga")
+st.sidebar.info(f"Total de Registros Carregados: **{len(df_dados)}**")
+st.sidebar.info(f"Período Detectado: **{data_min.strftime('%d/%m/%Y')}** a **{data_max.strftime('%d/%m/%Y')}**")
+st.sidebar.success(f"Registros Após Filtro: **{len(df_filtrado)}**")
+
 
 if df_filtrado.empty:
     st.warning("Nenhum dado encontrado para os filtros selecionados.")
@@ -114,6 +118,7 @@ st.success(f"Exibindo {len(df_filtrado)} registros com base nos filtros selecion
 tab1, tab2, tab3, tab4 = st.tabs(["📈 T. Médio Categoria", "🧑‍💻 T. Analista/Categoria", "🏆 Desempenho Analista", "🗂️ Visão Categoria"])
 
 with tab1:
+    # O código das abas continua o mesmo
     st.header("Análise do Tempo Médio de Resolução por Categoria")
     tempo_por_categoria = df_filtrado.groupby('Categoria')['Tempo Resolvido (h)'].mean().sort_values(ascending=False).reset_index()
     fig = px.bar(tempo_por_categoria, x='Tempo Resolvido (h)', y='Categoria', orientation='h', title='Tempo Médio (em horas)', text_auto='.2f')
