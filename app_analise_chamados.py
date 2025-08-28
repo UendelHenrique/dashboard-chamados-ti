@@ -80,7 +80,7 @@ analista_selecionado = st.sidebar.multiselect('Filtro por Analista', options=ana
 categorias = sorted(df_dados['Categoria'].dropna().unique())
 categoria_selecionada = st.sidebar.multiselect('Filtro por Categoria', options=categorias, default=categorias)
 
-# --- Filtro por Data (VERSÃO CORRIGIDA E MAIS ROBUSTA) ---
+# --- Filtro por Data (Com a nova correção no 'except') ---
 try:
     if df_dados['Data criação'].empty:
         st.warning("Não há dados de data válidos para criar o filtro de período.")
@@ -102,10 +102,11 @@ try:
     
     if not isinstance(periodo_selecionado, tuple) or len(periodo_selecionado) != 2:
         st.warning("O filtro de data não retornou um período válido. Atualizando a página...")
-        st.rerun() # Força a atualização da página para resetar o widget
+        st.rerun()
 
 except Exception as e:
-    st.error(f"Ocorreu um erro crítico ao criar o filtro de data: {e}")
+    # CORREÇÃO: Convertendo o objeto de exceção 'e' para string explicitamente
+    st.error(f"Ocorreu um erro crítico ao criar o filtro de data: {str(e)}")
     st.error("Isso pode ser causado por um formato de data inesperado. Verifique os dados na coluna 'Data criação'.")
     st.stop()
 
